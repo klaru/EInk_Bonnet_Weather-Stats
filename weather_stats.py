@@ -26,14 +26,15 @@ from adafruit_extended_bus import ExtendedI2C as I2C
 from adafruit_bh1750 import BH1750
 from adafruit_bme680 import Adafruit_BME680_I2C as BME680
 from Adafruit_IO import MQTTClient
+import paho.mqtt.client as Paho_MQTT
 
-topic3 = 'Temp_LivingRoom'
-topic4 = 'Humid_LivingRoom'
-topic5 = 'Press_LivingRoom'
-topic6 = 'Gas_LivingRoom'
-topic7 = 'Light_LivingRoom'
+topic3 = 'Temp_Kitchen'
+topic4 = 'Humid_Kitchen'
+topic5 = 'Press_Kitchen'
+topic6 = 'Gas_Kitchen'
+topic7 = 'Light_Kitchen'
 
-bme680_address = 0x77
+bme680_addresses = [0x76,0x77]
 bh1750_address = 0x23
 
 BME680_REG_CHIPID = 0xD0
@@ -42,8 +43,15 @@ BME680_CHIPID = 0x61
 client_adafruit = MQTTClient(secrets.ADAFRUIT_IO_USERNAME, secrets.ADAFRUIT_IO_KEY)
 client_adafruit.connect()
 
+client = Paho_MQTT.Client(client_id="P12")
+client.connect(secrets.MQTT_HOST, 1883)
+
 i2c1 = I2C(1)
-sensor1 = BME680(address=bme680_address, i2c=i2c1)
+devices = i2c1.scan()
+for device in devices:
+    for address in bme680_addresses:
+        if device == address:
+            sensor1 = BME680(address=address, i2c=i2c1)
 sensor2 = BH1750(i2c1, address = bh1750_address)
 
 
@@ -59,7 +67,7 @@ DATA_SOURCE_URL = "http://api.openweathermap.org/data/2.5/weather"
 
 if len(secrets.OPEN_WEATHER_TOKEN) == 0:
     raise RuntimeError(
-        "You need to set your token first. If you don't already have one, you can register for a free account at http>
+        "You need to set your token first. If you don't already have one, you can register for a free account at https://home.openweathermap.org/users/sign_up"
     )
 
 # Set up where we'll be fetching data from
@@ -114,24 +122,40 @@ while True:
         else:
             print("Unable to retrieve data at {}".format(url))
 
-    temperature = sensor1.temperature
-    humidity = sensor1.relative_humidity
-    pressure = sensor1.pressure
+    try:
+        temperature = sensor1.temperature
+        humidity = sensor1.relative_humidity
+        pressure = sensor1.pressure
+    except OSError:
+        print("BME680 doesn't respond")
+    temperature1 = "%0.0f"% temperature
+    humidity1 = "%0.0f"% humidity
+    pressure1 = "%0.0f"% pressure
     #print("Temperature = %0.0f °C" % temperature)
     #print("Relative Humidity = %0.0f %%" % humidity)
     #print("Pressure = %0.0f mbar" % pressure)
-    client_adafruit.publish(topic3, "%0.0f"% temperature)
-    client_adafruit.publish(topic4, str("%0.0f"% humidity))
-    client_adafruit.publish(topic5, str("%0.0f"% pressure))
+    client_adafruit.publish(topic3, temperature1)
+    client_adafruit.publish(topic4, "%0.0f"% humidity)
+    client_adafruit.publish(topic5, "%0.0f"% pressure)
+    client.publish(topic3, temperature1)
+    client.publish(topic4, humidity1)
+    client.publish(topic5, pressure1)
 
     if sensor1._read_byte(BME680_REG_CHIPID) == BME680_CHIPID:
         gas = sensor1.gas/1000
+        gas1 = "%0.0f"% gas
         #print("Gas = %d kohm" % gas)
         client_adafruit.publish(topic6, "%0.0f"% gas)
-    
-    light = sensor2.lux
+        client.publish(topic6, gas1)
+
+    try:
+        light = sensor2.lux
+    except OSError:
+        print("BH1750 doesn't respond")
+    light1 = "%0.0f"% light
     #print("Light intensity = %.0f Lux"%light)
     client_adafruit.publish(topic7, str("%0.0f"% light))
+    client.publish(topic7, light1)
 
     gfx.update_time()
     time.sleep(10)  # wait 10 seconds
@@ -156,7 +180,12 @@ while True:
     draw.text((x, top + 32), MemUsage, font=font, fill=BLACK)
     draw.text((x, top + 48), Disk, font=font, fill=BLACK)
 
+    draw.text((x, top + 64), "Temperature: " + temperature1 + " °C", font=font, fill=BLACK)
+    draw.text((x, top + 80), "Humidity: " + humidity1 + " %" + "     Gas: " + gas1 + " kOhm", font=font, fill=BLACK)
+    draw.text((x, top + 96), "Light Intensity: " + light1 + " lux", font=font, fill=BLACK)
+
     # Display image.
     display.image(image)
     display.display()
     time.sleep(10)
+
